@@ -7,7 +7,64 @@ from sklearn.tree import DecisionTreeRegressor
 from sklearn.metrics import mean_squared_error, r2_score, mean_absolute_error
 from sklearn.preprocessing import StandardScaler
 import pickle
+import sqlite3
 
+def init_database():
+    conn = sqlite3.connect('models.db')
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS train_results (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            model_name TEXT NOT NULL,
+            model_type TEXT,
+            rmse REAL,
+            mae REAL,
+            r2 REAL,
+            model_path TEXT,
+            filename TEXT,
+            train_size REAL,
+            train_samples INTEGER,
+            test_samples INTEGER,
+            n_features INTEGER,
+            created_at TEXT DEFAULT current_timestamp
+        )
+    """)
+    conn.commit()
+    conn.close()
+
+def save_to_database(results, model_name, filename):
+    """Сохранение результатов в базу данных"""
+    conn = sqlite3.connect('models.db')
+    cursor = conn.cursor()
+    
+    try:
+        cursor.execute("""
+            INSERT INTO train_results (
+                model_name, model_type, rmse, mae, r2,
+                model_path, filename, train_size,
+                train_samples, test_samples, n_features
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """, (
+            model_name,
+            results.get('model_type'),
+            results.get('test_rmse'),
+            results.get('test_mae'),
+            results.get('test_r2'),
+            results.get('model_path'),
+            filename,
+            results.get('train_size', 0.8),
+            results.get('train_samples'),
+            results.get('test_samples'),
+            results.get('n_features')
+        ))
+        
+        conn.commit()
+        print(f"Результаты сохранены в БД для модели {model_name}")
+        
+    except Exception as e:
+        print(f"Ошибка при сохранении в БД: {str(e)}")
+        conn.rollback()
+    finally:
+        conn.close()
 
 def prepare_features(df):
 
@@ -127,22 +184,44 @@ def train_model(filename: str, model_name: str, train_size: float = 0.8, model_t
         'features': X.columns.tolist()[:10]
     }
     
+    save_to_database(results, model_name, filename)
+
     return results
 
-def train_all_models(filename: str, train_size: float = 0.8):
+def train_all_models(filename: str, model_name: str = None, train_size: float = 0.8, model_type: str = None):
+    """
+    Обучение моделей.
+    
+    Параметры:
+    - filename: имя файла с данными
+    - model_name: базовое имя модели (если None, генерируется из filename)
+    - train_size: размер обучающей выборки
+    - model_type: тип модели ('linear', 'ridge', 'decision_tree' или None для всех)
+    """
+
+    init_database()
+    
     results = {}
     if model_type:
         model_types = [model_type]
     else:
-      model_types = ['linear', 'ridge', 'decision_tree']
+        model_types = ['linear', 'ridge', 'decision_tree']
     
-    for model_type in model_types:
-        model_name = f"{filename.split('.')[0]}_{model_type}"
+    for current_type in model_types:
+        if model_name:
+            current_model_name = f"{model_name}_{current_type}"
+        else:
+            current_model_name = f"{filename.split('.')[0]}_{current_type}"
+        
         try:
-            result = train_model(filename, model_name, train_size, model_type)
-            results[model_type] = result
-            print(f"{model_type}: RMSE = {result['test_rmse']:.4f}, R² = {result['test_r2']:.4f}")
+            result = train_model(filename, current_model_name, train_size, current_type)
+            results[current_type] = result
+            print(f"{current_type}: RMSE = {result['test_rmse']:.4f}, R² = {result['test_r2']:.4f}")
         except Exception as e:
-            print(f"Ошибка при обучении {model_type}: {str(e)}")
-    
-    return results   
+            print(f"Ошибка при обучении {current_type}: {str(e)}")
+            results[current_type] = {"error": str(e)}
+
+    return results
+
+
+init_database()  

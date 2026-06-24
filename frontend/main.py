@@ -4,10 +4,7 @@
 import streamlit as st 
 
 st.set_page_config("Первый проект",layout='wide')
-
-st.title("Привет, streamlit")
-
-# name = st.text_input("Enter your name:", placeholder="Student")
+st.title(f"Первый проект")
 
 # number = st.slider("Choise the number:", 0, 10, 5)
 
